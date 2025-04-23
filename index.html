@@ -1,20 +1,85 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Free Random Video Chat</title>
-  <link rel="stylesheet" href="style.css">
+  <title>Random Text Chat (P2P)</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+    #chat-box { height: 300px; border: 1px solid #ccc; overflow-y: scroll; padding: 10px; margin-bottom: 10px; }
+    #message-input { width: 70%; padding: 8px; }
+    button { padding: 8px 15px; background: #007BFF; color: white; border: none; cursor: pointer; }
+    button:hover { background: #0056b3; }
+  </style>
 </head>
 <body>
-  <div class="container">
-    <h1>Random Video Chat</h1>
-    <div id="video-container">
-      <video id="local-video" autoplay muted></video>
-      <video id="remote-video" autoplay></video>
-    </div>
-    <button id="start-btn">Start Chat</button>
-    <button id="next-btn">Next Stranger</button>
-  </div>
+  <h1>Random Text Chat</h1>
+  <div id="chat-box"></div>
+  <input type="text" id="message-input" placeholder="Type a message...">
+  <button id="send-btn">Send</button>
+  <button id="start-btn">Start Chat</button>
+
+  <script>
+    // Generate a random room ID (or use URL hash)
+    let roomId = window.location.hash.substring(1);
+    if (!roomId) {
+      roomId = Math.random().toString(36).substring(2, 8); // e.g., "x7f9a"
+      window.location.hash = roomId;
+    }
+
+    const chatBox = document.getElementById('chat-box');
+    const messageInput = document.getElementById('message-input');
+    const sendBtn = document.getElementById('send-btn');
+    const startBtn = document.getElementById('start-btn');
+
+    // WebRTC setup (using PeerJS for P2P)
+    const peer = new Peer(roomId + "-" + Math.random().toString(36).substring(2)); // Unique peer ID
+    let conn = null;
+
+    // Start chat button
+    startBtn.onclick = () => {
+      startBtn.disabled = true;
+      chatBox.innerHTML += `<p>Share this URL to chat: <strong>${window.location.href}</strong></p>`;
+      
+      // Listen for incoming connections
+      peer.on('connection', (connection) => {
+        conn = connection;
+        chatBox.innerHTML += `<p>Stranger joined!</p>`;
+        
+        conn.on('data', (data) => {
+          chatBox.innerHTML += `<p>Stranger: ${data}</p>`;
+          chatBox.scrollTop = chatBox.scrollHeight;
+        });
+      });
+
+      // Try connecting to another peer (if roomId is shared)
+      conn = peer.connect(roomId + "-other");
+      conn.on('open', () => {
+        chatBox.innerHTML += `<p>Connected to stranger!</p>`;
+      });
+      
+      conn.on('data', (data) => {
+        chatBox.innerHTML += `<p>Stranger: ${data}</p>`;
+        chatBox.scrollTop = chatBox.scrollHeight;
+      });
+    };
+
+    // Send message
+    sendBtn.onclick = () => {
+      const message = messageInput.value;
+      if (message && conn) {
+        conn.send(message);
+        chatBox.innerHTML += `<p>You: ${message}</p>`;
+        messageInput.value = '';
+        chatBox.scrollTop = chatBox.scrollHeight;
+      }
+    };
+
+    // Press Enter to send
+    messageInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') sendBtn.click();
+    });
+  </script>
+
+  <!-- Load PeerJS library -->
   <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
-  <script src="script.js"></script>
 </body>
 </html>

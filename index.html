@@ -1,20 +1,26 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>SparkChat - Fixed Connection</title>
+    <title>SparkChat - Fixed Messaging</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; }
         #chat-box { height: 300px; border: 1px solid #ddd; padding: 10px; overflow-y: scroll; margin-bottom: 10px; }
         #message-input { width: 70%; padding: 8px; }
         button { padding: 8px 15px; background: #6c5ce7; color: white; border: none; cursor: pointer; }
         .status { color: #666; font-size: 0.9em; margin-top: 10px; }
+        .message { margin: 5px 0; }
+        .you { color: #6c5ce7; }
+        .stranger { color: #d63031; }
+        .system { color: #0984e3; }
     </style>
 </head>
 <body>
     <h1>✨ SparkChat</h1>
     <div id="chat-box"></div>
-    <input type="text" id="message-input" placeholder="Type your message...">
-    <button id="send-btn" disabled>Send</button>
+    <div class="input-area">
+        <input type="text" id="message-input" placeholder="Type your message..." autocomplete="off">
+        <button id="send-btn" disabled>Send</button>
+    </div>
     <button id="start-btn">Start Chat</button>
     <div class="status" id="status">Disconnected</div>
 
@@ -30,10 +36,9 @@
         // Connection variables
         let peer;
         let conn;
-        let isInitiator = false;
         let roomId = window.location.hash.substring(1) || generateRoomId();
 
-        // Generate simple 4-character room ID
+        // Generate simple room ID
         function generateRoomId() {
             return Math.random().toString(36).substring(2, 6);
         }
@@ -41,10 +46,12 @@
         // Initialize PeerJS connection
         function initPeerConnection() {
             peer = new Peer({
-                config: { iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:global.stun.twilio.com:3478?transport=udp' }
-                ]}
+                config: { 
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:global.stun.twilio.com:3478?transport=udp' }
+                    ]
+                }
             });
 
             peer.on('open', (id) => {
@@ -55,7 +62,6 @@
                     connectToPeer(roomId);
                 } else {
                     // User A - wait for connection
-                    isInitiator = true;
                     window.location.hash = roomId;
                     updateStatus(`Share this link: ${window.location.href}`);
                     peer.on('connection', (connection) => {
@@ -71,7 +77,10 @@
 
         // Connect to another peer
         function connectToPeer(targetId) {
-            conn = peer.connect(targetId);
+            conn = peer.connect(targetId, {
+                reliable: true,
+                serialization: 'json'
+            });
             setupConnection(conn);
         }
 
@@ -95,13 +104,31 @@
                 sendBtn.disabled = true;
                 addMessage("System: Stranger disconnected", 'system');
             });
+            
+            conn.on('error', (err) => {
+                updateStatus(`Connection error: ${err}`);
+            });
+        }
+
+        // Send message function
+        function sendMessage() {
+            const message = messageInput.value.trim();
+            if (message && conn && conn.open) {
+                try {
+                    conn.send(message);
+                    addMessage(`You: ${message}`, 'you');
+                    messageInput.value = '';
+                } catch (err) {
+                    updateStatus(`Failed to send: ${err}`);
+                }
+            }
         }
 
         // UI Helpers
         function addMessage(text, type = 'you') {
             const msg = document.createElement('div');
+            msg.className = `message ${type}`;
             msg.textContent = text;
-            msg.style.color = type === 'stranger' ? '#d63031' : type === 'system' ? '#0984e3' : '#6c5ce7';
             chatBox.appendChild(msg);
             chatBox.scrollTop = chatBox.scrollHeight;
         }
@@ -121,15 +148,6 @@
         messageInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') sendMessage();
         });
-
-        function sendMessage() {
-            const message = messageInput.value.trim();
-            if (message && conn && conn.open) {
-                conn.send(message);
-                addMessage(`You: ${message}`);
-                messageInput.value = '';
-            }
-        }
 
         // Auto-start if URL has hash (for User B)
         if (window.location.hash) {

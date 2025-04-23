@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>SparkChat - Fixed Messaging</title>
+    <title>SparkChat - Reliable Version</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; }
         #chat-box { height: 300px; border: 1px solid #ddd; padding: 10px; overflow-y: scroll; margin-bottom: 10px; }
@@ -9,19 +9,21 @@
         button { padding: 8px 15px; background: #6c5ce7; color: white; border: none; cursor: pointer; }
         .status { color: #666; font-size: 0.9em; margin-top: 10px; }
         .message { margin: 5px 0; }
-        .you { color: #6c5ce7; }
-        .stranger { color: #d63031; }
+        .you { color: #6c5ce7; font-weight: bold; }
+        .stranger { color: #d63031; font-weight: bold; }
         .system { color: #0984e3; }
+        #restart-btn { display: none; margin-top: 10px; background: #e17055; }
     </style>
 </head>
 <body>
     <h1>✨ SparkChat</h1>
     <div id="chat-box"></div>
     <div class="input-area">
-        <input type="text" id="message-input" placeholder="Type your message..." autocomplete="off">
+        <input type="text" id="message-input" placeholder="Type your message..." autocomplete="off" disabled>
         <button id="send-btn" disabled>Send</button>
     </div>
     <button id="start-btn">Start Chat</button>
+    <button id="restart-btn">Reconnect</button>
     <div class="status" id="status">Disconnected</div>
 
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
@@ -31,12 +33,15 @@
         const messageInput = document.getElementById('message-input');
         const sendBtn = document.getElementById('send-btn');
         const startBtn = document.getElementById('start-btn');
+        const restartBtn = document.getElementById('restart-btn');
         const statusEl = document.getElementById('status');
 
         // Connection variables
         let peer;
         let conn;
         let roomId = window.location.hash.substring(1) || generateRoomId();
+        let reconnectAttempts = 0;
+        const MAX_RECONNECT_ATTEMPTS = 3;
 
         // Generate simple room ID
         function generateRoomId() {
@@ -45,17 +50,21 @@
 
         // Initialize PeerJS connection
         function initPeerConnection() {
+            destroyConnection();
+            
             peer = new Peer({
                 config: { 
                     iceServers: [
                         { urls: 'stun:stun.l.google.com:19302' },
                         { urls: 'stun:global.stun.twilio.com:3478?transport=udp' }
                     ]
-                }
+                },
+                debug: 3
             });
 
             peer.on('open', (id) => {
                 updateStatus(`Connected as ${id.substring(0, 5)}...`);
+                reconnectAttempts = 0;
                 
                 if (window.location.hash) {
                     // User B - connect to initiator
@@ -71,17 +80,26 @@
             });
 
             peer.on('error', (err) => {
-                updateStatus(`Error: ${err.type}`);
+                handleError(err);
             });
         }
 
         // Connect to another peer
         function connectToPeer(targetId) {
+            updateStatus("Connecting to stranger...");
             conn = peer.connect(targetId, {
                 reliable: true,
-                serialization: 'json'
+                serialization: 'json',
+                metadata: { roomId: roomId }
             });
-            setupConnection(conn);
+            
+            conn.on('open', () => {
+                setupConnection(conn);
+            });
+            
+            conn.on('error', (err) => {
+                handleError(err);
+            });
         }
 
         // Set up connection events
@@ -91,8 +109,10 @@
             conn.on('open', () => {
                 updateStatus("Connected to stranger!");
                 sendBtn.disabled = false;
+                messageInput.disabled = false;
                 messageInput.focus();
-                addMessage("System: You're now connected!", 'system');
+                addMessage("System: You're now connected! Start chatting.", 'system');
+                restartBtn.style.display = 'none';
             });
 
             conn.on('data', (data) => {
@@ -100,14 +120,54 @@
             });
 
             conn.on('close', () => {
-                updateStatus("Connection closed");
-                sendBtn.disabled = true;
-                addMessage("System: Stranger disconnected", 'system');
+                handleDisconnection();
             });
             
             conn.on('error', (err) => {
-                updateStatus(`Connection error: ${err}`);
+                handleError(err);
             });
+        }
+
+        // Handle errors
+        function handleError(err) {
+            console.error(err);
+            updateStatus(`Error: ${err.type || err.message}`);
+            
+            if (err.type === 'peer-unavailable') {
+                if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                    reconnectAttempts++;
+                    setTimeout(() => {
+                        updateStatus(`Retrying connection (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+                        initPeerConnection();
+                    }, 2000);
+                } else {
+                    updateStatus("Failed to connect after multiple attempts");
+                    restartBtn.style.display = 'inline-block';
+                }
+            } else {
+                handleDisconnection();
+            }
+        }
+
+        // Handle disconnection
+        function handleDisconnection() {
+            updateStatus("Disconnected");
+            sendBtn.disabled = true;
+            messageInput.disabled = true;
+            addMessage("System: Connection lost", 'system');
+            restartBtn.style.display = 'inline-block';
+        }
+
+        // Clean up connection
+        function destroyConnection() {
+            if (conn) {
+                conn.close();
+                conn = null;
+            }
+            if (peer) {
+                peer.destroy();
+                peer = null;
+            }
         }
 
         // Send message function
@@ -119,7 +179,7 @@
                     addMessage(`You: ${message}`, 'you');
                     messageInput.value = '';
                 } catch (err) {
-                    updateStatus(`Failed to send: ${err}`);
+                    updateStatus(`Failed to send: ${err.message}`);
                 }
             }
         }
@@ -140,6 +200,11 @@
         // Event Listeners
         startBtn.addEventListener('click', () => {
             startBtn.disabled = true;
+            initPeerConnection();
+        });
+
+        restartBtn.addEventListener('click', () => {
+            restartBtn.style.display = 'none';
             initPeerConnection();
         });
 

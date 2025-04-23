@@ -1,30 +1,28 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>SparkChat - Reliable Version</title>
+    <title>Random Chat (Fixed)</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; }
         #chat-box { height: 300px; border: 1px solid #ddd; padding: 10px; overflow-y: scroll; margin-bottom: 10px; }
         #message-input { width: 70%; padding: 8px; }
         button { padding: 8px 15px; background: #6c5ce7; color: white; border: none; cursor: pointer; }
-        .status { color: #666; font-size: 0.9em; margin-top: 10px; }
+        .status { color: #666; margin-top: 10px; }
         .message { margin: 5px 0; }
-        .you { color: #6c5ce7; font-weight: bold; }
-        .stranger { color: #d63031; font-weight: bold; }
+        .you { color: #6c5ce7; }
+        .stranger { color: #d63031; }
         .system { color: #0984e3; }
-        #restart-btn { display: none; margin-top: 10px; background: #e17055; }
+        #restart-btn { background: #e17055; margin-top: 10px; display: none; }
     </style>
 </head>
 <body>
-    <h1>✨ SparkChat</h1>
+    <h1>Random Chat</h1>
     <div id="chat-box"></div>
-    <div class="input-area">
-        <input type="text" id="message-input" placeholder="Type your message..." autocomplete="off" disabled>
-        <button id="send-btn" disabled>Send</button>
-    </div>
+    <input type="text" id="message-input" placeholder="Type message..." disabled>
+    <button id="send-btn" disabled>Send</button>
     <button id="start-btn">Start Chat</button>
     <button id="restart-btn">Reconnect</button>
-    <div class="status" id="status">Disconnected</div>
+    <div class="status" id="status">Not connected</div>
 
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <script>
@@ -40,17 +38,17 @@
         let peer;
         let conn;
         let roomId = window.location.hash.substring(1) || generateRoomId();
-        let reconnectAttempts = 0;
-        const MAX_RECONNECT_ATTEMPTS = 3;
+        let isInitiator = !window.location.hash;
 
         // Generate simple room ID
         function generateRoomId() {
             return Math.random().toString(36).substring(2, 6);
         }
 
-        // Initialize PeerJS connection
-        function initPeerConnection() {
-            destroyConnection();
+        // Initialize connection
+        function init() {
+            // Clean up previous connection
+            if (peer) peer.destroy();
             
             peer = new Peer({
                 config: { 
@@ -58,138 +56,88 @@
                         { urls: 'stun:stun.l.google.com:19302' },
                         { urls: 'stun:global.stun.twilio.com:3478?transport=udp' }
                     ]
-                },
-                debug: 3
+                }
             });
 
             peer.on('open', (id) => {
-                updateStatus(`Connected as ${id.substring(0, 5)}...`);
-                reconnectAttempts = 0;
+                updateStatus(`Connected as ${id.slice(0, 5)}...`);
+                restartBtn.style.display = 'none';
                 
-                if (window.location.hash) {
-                    // User B - connect to initiator
+                if (!isInitiator) {
+                    // User B - Connect to initiator
                     connectToPeer(roomId);
                 } else {
-                    // User A - wait for connection
+                    // User A - Wait for connection
                     window.location.hash = roomId;
-                    updateStatus(`Share this link: ${window.location.href}`);
-                    peer.on('connection', (connection) => {
-                        setupConnection(connection);
-                    });
+                    updateStatus(`Share this URL: ${window.location.href}`);
+                    peer.on('connection', setupConnection);
                 }
             });
 
             peer.on('error', (err) => {
-                handleError(err);
+                if (err.type === 'peer-unavailable') {
+                    updateStatus("Stranger not available yet...");
+                    setTimeout(() => peer.reconnect(), 2000);
+                } else {
+                    updateStatus(`Error: ${err.type}`);
+                    restartBtn.style.display = 'inline-block';
+                }
             });
         }
 
         // Connect to another peer
-        function connectToPeer(targetId) {
-            updateStatus("Connecting to stranger...");
-            conn = peer.connect(targetId, {
-                reliable: true,
-                serialization: 'json',
-                metadata: { roomId: roomId }
-            });
-            
-            conn.on('open', () => {
-                setupConnection(conn);
-            });
-            
+        function connectToPeer(peerId) {
+            conn = peer.connect(peerId, { reliable: true });
             conn.on('error', (err) => {
-                handleError(err);
+                if (err.type === 'peer-unavailable') {
+                    updateStatus("Waiting for stranger to connect...");
+                    setTimeout(() => connectToPeer(peerId), 2000);
+                }
             });
+            setupConnection(conn);
         }
 
-        // Set up connection events
+        // Set up connection handlers
         function setupConnection(connection) {
             conn = connection;
             
             conn.on('open', () => {
-                updateStatus("Connected to stranger!");
-                sendBtn.disabled = false;
+                updateStatus("Connected!");
                 messageInput.disabled = false;
+                sendBtn.disabled = false;
                 messageInput.focus();
-                addMessage("System: You're now connected! Start chatting.", 'system');
-                restartBtn.style.display = 'none';
+                addMessage("System: Connected to stranger", "system");
             });
 
             conn.on('data', (data) => {
-                addMessage(`Stranger: ${data}`, 'stranger');
+                addMessage(`Stranger: ${data}`, "stranger");
             });
 
             conn.on('close', () => {
-                handleDisconnection();
+                updateStatus("Disconnected");
+                messageInput.disabled = true;
+                sendBtn.disabled = true;
+                addMessage("System: Stranger disconnected", "system");
+                restartBtn.style.display = 'inline-block';
             });
-            
-            conn.on('error', (err) => {
-                handleError(err);
-            });
         }
 
-        // Handle errors
-        function handleError(err) {
-            console.error(err);
-            updateStatus(`Error: ${err.type || err.message}`);
-            
-            if (err.type === 'peer-unavailable') {
-                if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                    reconnectAttempts++;
-                    setTimeout(() => {
-                        updateStatus(`Retrying connection (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
-                        initPeerConnection();
-                    }, 2000);
-                } else {
-                    updateStatus("Failed to connect after multiple attempts");
-                    restartBtn.style.display = 'inline-block';
-                }
-            } else {
-                handleDisconnection();
-            }
-        }
-
-        // Handle disconnection
-        function handleDisconnection() {
-            updateStatus("Disconnected");
-            sendBtn.disabled = true;
-            messageInput.disabled = true;
-            addMessage("System: Connection lost", 'system');
-            restartBtn.style.display = 'inline-block';
-        }
-
-        // Clean up connection
-        function destroyConnection() {
-            if (conn) {
-                conn.close();
-                conn = null;
-            }
-            if (peer) {
-                peer.destroy();
-                peer = null;
-            }
-        }
-
-        // Send message function
+        // Send message
         function sendMessage() {
-            const message = messageInput.value.trim();
-            if (message && conn && conn.open) {
-                try {
-                    conn.send(message);
-                    addMessage(`You: ${message}`, 'you');
-                    messageInput.value = '';
-                } catch (err) {
-                    updateStatus(`Failed to send: ${err.message}`);
-                }
+            const msg = messageInput.value.trim();
+            if (msg && conn && conn.open) {
+                conn.send(msg);
+                addMessage(`You: ${msg}`, "you");
+                messageInput.value = "";
             }
         }
 
-        // UI Helpers
-        function addMessage(text, type = 'you') {
-            const msg = document.createElement('div');
-            msg.className = `message ${type}`;
-            msg.textContent = text;
-            chatBox.appendChild(msg);
+        // UI helpers
+        function addMessage(text, type) {
+            const div = document.createElement('div');
+            div.className = `message ${type}`;
+            div.textContent = text;
+            chatBox.appendChild(div);
             chatBox.scrollTop = chatBox.scrollHeight;
         }
 
@@ -197,25 +145,24 @@
             statusEl.textContent = text;
         }
 
-        // Event Listeners
+        // Event listeners
         startBtn.addEventListener('click', () => {
             startBtn.disabled = true;
-            initPeerConnection();
+            init();
         });
 
         restartBtn.addEventListener('click', () => {
             restartBtn.style.display = 'none';
-            initPeerConnection();
+            init();
         });
 
         sendBtn.addEventListener('click', sendMessage);
-
         messageInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') sendMessage();
         });
 
-        // Auto-start if URL has hash (for User B)
-        if (window.location.hash) {
+        // Auto-start if URL has hash
+        if (!isInitiator) {
             startBtn.click();
         }
     </script>

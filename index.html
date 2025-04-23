@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Free Random Video Chat</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Random Video Chat</h1>
+    <div id="video-container">
+      <video id="local-video" autoplay muted></video>
+      <video id="remote-video" autoplay></video>
+    </div>
+    <button id="start-btn">Start Chat</button>
+    <button id="next-btn">Next Stranger</button>
+  </div>
+  <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
